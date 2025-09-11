@@ -1,0 +1,154 @@
+#============================================================================= 
+# Title   : Watch Animation Demo
+# Author  : autolotion
+#-----------------------------------------------------------------------------
+# Version History:
+#         |   |
+# 25.08.25|1.0|- Sample to demonstrade animation inside a configuration setting with Pixoo 64
+#         |   |
+#-----------------------------------------------------------------------------
+# HA OS    : 16.1
+# HA Core  : 2025.8.3
+# Pixoo Int: 1.18.0
+#============================================================================= 
+
+- page_type: components
+  enabled: true
+  duration: 1   #-- a duration of one second must be set for the animation of the watch
+
+  variables:
+    #-- for testing / debugging, set debugging to true
+    debugging: false
+
+  components:
+    - type: text
+      content: "{{ now().strftime('%H:%M:%S') if debugging else ''}}"
+      #content: "{{ now().strftime('%S') if debugging else ''}}"
+      position: [64, 0]
+      align: right
+      color: gold
+
+    - type: templatable
+      template: >-
+
+        {#-- macro to create a component of type rectangle and add it to the global components.list #}
+        {%- macro AddRect(posx, posy, color, sizex, sizey, filled = false) %}
+          {%- set component = {"type": "rectangle", "position": [posx, posy], "color": color,  "size": [sizex, sizey], "filled": filled|bool} %}
+          {%- set components.list = components.list + [component] %}
+        {%- endmacro %}
+       
+        {#-- macro to create a component of type image and add it to the global components.list #}
+        {%- macro AddImgByPath(posx, posy, path) %}
+          {%- set component = {"type": "image", "position": [posx, posy], "image_path": path} %}
+          {%- set components.list = components.list + [component] %}
+        {%- endmacro %}
+
+        {#-- macro to create a component of type image based on base64 icon and add it to the global components.list #}
+        {%- macro AddImgByBase64(posx, posy, icon_base64) %}
+          {%- set component = {"type": "image", "position": [posx, posy], "image_data": icon_base64} %}
+          {%- set components.list = components.list + [component] %}
+        {%- endmacro %}
+
+        {%- set seconds = now().second %}
+
+        {%- set custom_img_path = "/config/custom_components/divoom_pixoo_custom" %}
+        {%- set custom_img_path_solar = "/config/custom_components/divoom_pixoo_custom/solar" %}
+
+        {#-== create new empty components list to hold all of the following component definitions for this template ======#}
+        {%- set components = namespace(list=[]) %}
+        {#-===============================================================================================================#}
+
+        {#{{ AddImgByPath(0, 0, custom_img_path + "/watchface5.png") }}#}
+
+        {%- set start_x = 31 %}
+        {%- set start_y = 31 %}
+
+        {#{%- set ticks_color = [208,209,209] %}#}
+        {%- set ticks_color = [247, 247, 247] %}
+
+        {%- set radius_watch = 30 %}
+        {%- set angle_step = 360//60 %}
+
+        {#-- add circle with minutes and main hours to the watch face #}
+        {%- for index in range(0, 60) %}
+          {#--  --#}
+          {%- set angle = 270 + (index * angle_step) %}
+
+          {%- set pos_x = (cos(angle * pi / 180) * radius_watch) | round(0) %}
+          {%- set pos_y = (sin(angle * pi / 180) * radius_watch) | round(0) %}
+          
+          {%- if angle == 270 %}
+            {{ AddRect(start_x + pos_x, start_y + pos_y, ticks_color, 1, 3, true) }}
+          {%- elif angle == 360 %}
+            {{ AddRect(start_x + pos_x - 2, start_y + pos_y, ticks_color, 3, 1, true) }}
+          {%- elif angle == 450 %}
+            {{ AddRect(start_x + pos_x, start_y + pos_y -  2, ticks_color, 1, 3, true) }}
+          {%- elif angle == 540 %}
+            {{ AddRect(start_x + pos_x, start_y + pos_y, ticks_color, 3, 1, true) }}
+          {%- else %}
+            {{ AddRect(start_x + pos_x, start_y + pos_y, ticks_color, 1, 1, true) }}
+          {%- endif %}
+        {%- endfor %}
+
+        {#-- add additonal 5 minutes ticks to the watch face #}
+        {%- for index in [5,10,20,25,35,40,50,55] %}
+          {%- set angle = 270 + index * angle_step %}
+          {%- set pos_x = (cos(angle * pi / 180) * (radius_watch - 2)) | round(0) %}
+          {%- set pos_y = (sin(angle * pi / 180) * (radius_watch - 2)) | round(0) %}
+          {{ AddRect(start_x + pos_x, start_y + pos_y, ticks_color, 1, 1, true) }}
+        {%- endfor %}
+
+        {#-- let run seconds around the watch face #}
+        {%- set angle = 270 + seconds * angle_step %}
+        {%- set pos_x = (cos(angle * pi / 180) * radius_watch) | round(0) %}
+        {%- set pos_y = (sin(angle * pi / 180) * radius_watch) | round(0) %}
+        {#{{ AddRect(start_x + pos_x, start_y + pos_y, "yellow", 1, 1, true) }}#}
+
+        {#-- show seconds as second hand in the watch #}
+        {%- set radius_seconds = 27 %}
+
+        {#{%- set seconds = now().second %}#}
+        {%- set angle = 270 + seconds * angle_step %}
+        
+        {%- for index in range(0, radius_seconds) %}
+          {%- set pos_x = (cos(angle * pi / 180) * index) | round(0) %}
+          {%- set pos_y = (sin(angle * pi / 180) * index) | round(0) %}
+          {{ AddRect(start_x + pos_x, start_y + pos_y, [208,209,209], 1, 1, true) }}
+        {%- endfor %}
+
+        {#-- show minutes as minute hand in the watch #}
+        {%- set radius_minutes = 24 %}
+        {%- set minutes = now().minute %}
+        {%- set angle = 270 + minutes * angle_step %}
+        
+        {%- for index in range(0, radius_minutes) %}
+          {%- set pos_x = (cos(angle * pi / 180) * index) | round(0) %}
+          {%- set pos_y = (sin(angle * pi / 180) * index) | round(0) %}
+          {{ AddRect(start_x + pos_x, start_y + pos_y, [167, 41, 34], 1, 1, true) }}
+        {%- endfor %}
+
+        {#-- show hours as hour hand in the watch #}
+        {%- set radius_hours = 18 %}
+        {%- set hours = now().hour %}
+        {%- set hours = hours - 12 if hours > 12 else hours %}
+        {%- set angle = 270 + hours * 360//12 + (minutes / 60 * angle_step * 5)|round(0) %}
+
+        {%- for index in range(0, radius_hours) %}
+          {%- set pos_x = (cos(angle * pi / 180) * index) | round(0) %}
+          {%- set pos_y = (sin(angle * pi / 180) * index) | round(0) %}
+          {{ AddRect(start_x + pos_x, start_y + pos_y, [253, 213, 38], 1, 1, true) }}
+        {%- endfor %}
+
+        {#-- show center #}
+        {#{{ AddRect(start_x - 1, start_y - 1, "darkgray", 3, 3, true) }}
+        {{ AddRect(start_x - 2, start_y, "darkgray", 5, 1, true) }}
+        {{ AddRect(start_x, start_y - 2, "darkgray", 1, 5, true) }}#}
+        {{ AddRect(start_x - 1, start_y, "darkgray", 3, 1, true) }}
+        {{ AddRect(start_x, start_y - 1, "darkgray", 1, 3, true) }}
+
+
+        {#-== finally output components list to template definition =============#}
+        {{components.list}}
+        {#-======================================================================#}
+
+
