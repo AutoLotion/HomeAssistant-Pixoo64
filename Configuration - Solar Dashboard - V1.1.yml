@@ -1,0 +1,335 @@
+#=============================================================================
+# Title   : Solar Dashboard
+# Author  : AutoLotion
+#-----------------------------------------------------------------------------
+# Version History:
+#         |   |
+# 22.08.25|1.1|- All icons in the solar overview are now loaded by Base64 representation, 
+#         |   |  so no more files need to be loaded
+# 18.08.25|1.0|- First version of the Solar Dashboard with full implementation using macros and defining
+#         |   |  all elements of the page in only one templatable component,
+#         |   |  including animation of the power flows and directions by using system clock seconds.
+#         |   |- With this implementation the same macros can be used for all elements and
+#         |   |  the position can be calculated relatively, for example to a fix point
+#         |   |  or to another element in the page.
+#         |   |- Animation is derived from system clock seconds. For this purpose, the duration
+#         |   |  property of the page must be set to a very small value. Best is 1 second.
+#         |   |- To define all elements, or sub components, a global list is used. At the end
+#         |   |  of all definitions this list will be the output of the one templatable component
+#         |   |
+#         |   |- To adapt this Solar Dashboard search for "= states('sensor." and 
+#         |   |  replace the Entity IDs by your Entity IDs in your Home Assistant configuration
+#         |   |
+#-----------------------------------------------------------------------------
+# HA OS    : 16.1
+# HA Core  : 2025.8.3
+# Pixoo Int: 1.18.0
+#============================================================================= 
+
+- page_type: components
+  enabled: true
+  duration: 1   #-- a short duration is importent for animations, best is 1 second
+
+  components:
+    - type: templatable
+      template: >-
+        {#=========================================================================#}
+        {#== definitions of variables used in various sections                   ==#}
+        {#=========================================================================#}
+        {% set debugging = false %}
+
+        {% set custom_img_path_solar = "/config/custom_components/divoom_pixoo_custom/solar" %}
+
+        {#-- get seconds from system clock for the animation of some components --#}
+        {% set time_seconds = now().second %}
+
+        {#-- text color for the different sensor types --#}
+        {% set text_color_date_time = "gold" %}
+        {% set text_color_energy = "yellow" %}
+        {% set text_color_power = "white" %}
+        {% set text_color_co2 = "green" %}
+        {% set text_color_humidity = "darkblue" %}
+        {% set text_color_temperature = "firebrick" %}
+        {% set text_color_fan_speed = "green" %}
+
+        {% set line_color_battery = "dimgray" %}
+        {% set line_color_power_flow = [179,202,190] %}
+
+        {#=========================================================================#}
+        {#== macro definitions to define different component types               ==#}
+        {#=========================================================================#}
+        {#-- macro to create a component of type text and add it to the global components.list #}
+        {%- macro AddText(posx, posy, color, content, align="left") %}
+          {% set component = {"type": "text", "position": [posx, posy], "color": color, "align": align, "content": content} %}
+          {% set components.list = components.list + [component] %}
+        {%- endmacro %}
+
+        {#-- macro to create a component of type rectangle and add it to the global components.list #}
+        {%- macro AddRect(posx, posy, color, sizex, sizey, filled = false) %}
+          {% set component = {"type": "rectangle", "position": [posx, posy], "color": color,  "size": [sizex, sizey], "filled": filled|bool} %}
+          {% set components.list = components.list + [component] %}
+        {%- endmacro %}
+       
+        {#-- macro to create a component of type image and add it to the global components.list #}
+        {%- macro AddImgByPath(posx, posy, path) %}
+          {% set component = {"type": "image", "position": [posx, posy], "image_path": path} %}
+          {% set components.list = components.list + [component] %}
+        {%- endmacro %}
+
+        {#-- macro to create a component of type image based on base64 icon and add it to the global components.list #}
+        {%- macro AddImgByBase64(posx, posy, icon_base64) %}
+          {% set component = {"type": "image", "position": [posx, posy], "image_data": icon_base64} %}
+          {% set components.list = components.list + [component] %}
+        {%- endmacro %}
+
+        {#-- macro to create a component of type rectangle to represent a light and add it to the global components.list #}
+        {%- macro AddLight(posx, posy, state) %}
+          {% if state == "on" %}
+            {% set color = "yellow" %}
+          {% else %}
+            {% set color = "gray" %}
+          {% endif %}
+          {% set component = {"type": "rectangle", "position": [posx, posy], "color": color,  "size": [3, 3], "filled": true} %}
+          {% set components.list = components.list + [component] %}
+        {%- endmacro %}
+
+        {#-- macro to create a component of type rectangle to represent a roller shutter or a garage door and add it to the global components.list #}
+        {%- macro AddShutter(posx, posy, sizex, sizey, state) %}
+          {% if (state == "off") %}
+            {#-- if shutter / door is open, animate by changing color #}
+            {% if (time_seconds % 2 == 0) %}
+              {% set color = "red" %}
+            {% else %}
+              {% set color = "white" %}
+            {% endif %}
+          {% else %}
+            {% set color = door_color %}
+          {% endif %}
+          {% set component = {"type": "rectangle", "position": [posx, posy], "color": color,  "size": [sizex, sizey], "filled": true} %}
+          {% set components.list = components.list + [component] %}
+        {%- endmacro %}
+
+
+        {#== create new empty components list to hold all of the following component definitions for this template ======#}
+        {% set components = namespace(list=[]) %}
+        {#===============================================================================================================#}
+
+        {#=========================================================================#}
+        {#== set up header for this page                                         ==#}
+        {#=========================================================================#}
+        {#-- date, position at top left corner in the page --#}
+        {{ AddText(0, 0, text_color_date_time, now().strftime('%d.%m'), "left") }}
+
+        {#-- time, position at top right corner in the page--#}
+        {% if debugging == true %}
+          {#-- for debugging display also seconds as a life ticker --#}
+          {{ AddText(64, 0, text_color_date_time, now().strftime('%H:%M:%S'), "right") }}
+        {% else %}  
+          {{ AddText(64, 0, text_color_date_time, now().strftime('%H:%M'), "right") }}
+        {% endif %}  
+
+        {#=========================================================================#}
+        {#== set up the main components for this page                            ==#}
+        {#=========================================================================#}
+
+        {#-- reference = center of crossing power paths (vertical and horizontal) --#}
+        {% set power_path_pos_x = 32 %}
+        {% set power_path_pos_y = 34 %}
+        {% set power_path_offset_left = 20 %}
+        {% set power_path_offset_top = 14 %}
+        {% set power_path_legth_x = 38 %}
+        {% set power_path_legth_y = 28 %}
+        {% set line_color_power_path = [69,92,80] %}
+        {% set power_flow_size_x = 1 %}
+        {% set power_flow_size_y = 1 %}
+
+        {#-- horizontal line for power path --#}
+        {{ AddRect(power_path_pos_x - power_path_offset_left, power_path_pos_y, line_color_power_path, power_path_legth_x, 1, true) }}
+        {#-- vertical line for power path --#}
+        {{ AddRect(power_path_pos_x, power_path_pos_y - power_path_offset_top, line_color_power_path, 1, power_path_legth_y, true) }}
+        {#-- in the center a rectangle to symbolize the inverter --#}
+        {{ AddRect(power_path_pos_x - 1 , power_path_pos_y - 1, line_color_power_path, 3, 3, true) }}
+
+        {#------------------------------------------------------------------------#}
+        {#-- Solar Production                                                   --#}
+        {#------------------------------------------------------------------------#}
+        {#-- reference = upper center of solar_production_power display--#}
+        {% set pos_x = 32 %}
+        {% set pos_y = 14 %}
+  
+        {#-- get all used sensor values. Each sensor is checked by has_value('') --#}
+        {% set solar_production_power = states('sensor.total_production_power')|round(0) if has_value('sensor.total_production_power') else 0 %}
+        {% set solar_production_energy = states('sensor.total_today_production')|round(0) if has_value('sensor.total_today_production') else 0 %}
+  
+        {% set icon_sun = 
+          'iVBORw0KGgoAAAANSUhEUgAAAA0AAAANCAYAAABy6+R8AAAATElEQVR42qWSQQ4AIAjD6P8fjfFi1DAIyg3sBqKYCHdzMKIzFJDVUFCWl+5RPZx5QgsITMgESsjtqkQH99Tp+07t7bXf6flHVCPtMQCHoUsLlDBz5gAAAABJRU5ErkJggg=='
+          %}
+        {{ AddImgByBase64(26, 0, icon_sun) }}
+        {#{{ AddImgByPath(26, 0, custom_img_path_solar + "/sun.png") }}#}
+  
+        {{ AddText(pos_x - 7, pos_y - 6, text_color_energy, solar_production_energy, "right") }}
+        {{ AddText(pos_x, pos_y, text_color_power, solar_production_power, "center") }}
+
+        {% if solar_production_power > 0 %}
+        {#-- animate the power flow along the power path --#}
+          {{ AddRect(power_path_pos_x - power_flow_size_x // 2, power_path_pos_y - power_path_offset_top + time_seconds % (power_path_offset_top - power_flow_size_y + 1), line_color_power_flow, power_flow_size_x, power_flow_size_y, true) }}
+        {% endif %}
+
+        {#------------------------------------------------------------------------#}
+        {#-- Home                                                               --#}
+        {#------------------------------------------------------------------------#}
+        {#-- reference = upper right corner of consumption_power display--#}
+        {% set pos_x = 50 %}
+        {% set pos_y = 28 %}
+  
+        {#-- get all used sensor values. Each sensor is checked by has_value('') --#}
+        {% set consumption_energy = states('sensor.total_today_s_consumption')|round(0) if has_value('sensor.total_today_s_consumption') else 0 %}
+        {% set consumption_power = states('sensor.total_home_consumption')|round(0) if has_value('sensor.total_home_consumption') else 0 %}
+
+        {% set icon_house = 
+          'iVBORw0KGgoAAAANSUhEUgAAAA0AAAAUCAYAAABWMrcvAAAARklEQVR42mNkwAE2xKj8D1hyhxGbHCM+Dbg0MhKyAZtGRnwacIkzEtKATZ6RGA3oGhmJ1YCskTybRjWNaqKiJkIaYACkCQAD15ZEZfKKuAAAAABJRU5ErkJggg=='
+          %}
+        {{ AddImgByBase64(51, 21, icon_house) }}
+        {#{{ AddImgByPath(51, 21, custom_img_path_solar + "/house.png") }}#}
+
+        {#-- Daily energy consumption in kWh  --#}
+        {{ AddText(pos_x, pos_y + 11, text_color_energy, consumption_energy, "right") }} 
+        {#-- Consumption power in W  --#}
+        {{ AddText(pos_x, pos_y, text_color_power, consumption_power, "right") }}
+  
+        {#-- animate the power flow along the power path --#}
+        {% if consumption_power > 0 %}
+          {{ AddRect(power_path_pos_x + 1 + time_seconds % (power_path_legth_x - power_path_offset_left - power_flow_size_x), power_path_pos_y - power_flow_size_y // 2, line_color_power_flow, power_flow_size_x, power_flow_size_y, true) }}
+        {% endif %}
+
+        {#-- Livingroom --#}
+        {% set pos_x = 61 %}
+        {% set pos_y = 23 %}
+      
+        {#-- to save space, float values are converted to int --#}
+        {% set living_temperature = states('sensor.co2_temp_rh_0c62_temperature')|int if has_value('sensor.co2_temp_rh_0c62_temperature') else 0 %}
+  
+        {{ AddText(pos_x, pos_y + 11, text_color_temperature, living_temperature, "right") }}
+
+        {#------------------------------------------------------------------------#}
+        {#-- Battery                                                            --#}
+        {#------------------------------------------------------------------------#}
+        {#-- reference = center of battery_power display and battery layout --#}
+        {% set pos_x = 32 %}
+        {% set pos_y = 55 %}
+  
+        {#-- get all used sensor values. Each sensor is checked by has_value('') --#}
+        {% set battery_energy_charche = states('sensor.wr_1_12k_today_battery_charge')|round(0) if has_value('sensor.wr_1_12k_today_battery_charge') else 0 %}
+        {% set battery_energy_discharche = states('sensor.wr_1_12k_today_battery_discharge')|round(0) if has_value('sensor.wr_1_12k_today_battery_discharge') else 0 %}
+        {% set battery_power = states('sensor.wr_1_12k_battery_power')|round(0) if has_value('sensor.wr_1_12k_battery_power') else 0 %}
+        {% set battery_soc = states('sensor.wr_1_12k_battery')|round(0) if has_value('sensor.wr_1_12k_battery') else 0 %}
+  
+        {% if battery_soc|int >= 80 %}
+          {% set battery_color = [255,195,25] %}
+        {% elif battery_soc|int >= 60 %}
+          {% set battery_color = [204,153,0] %}
+        {% elif battery_soc|int >= 40 %}
+          {% set battery_color = [255,153,0] %}
+        {% elif battery_soc|int >= 20 %}
+          {% set battery_color = [204,102,0] %}
+        {% else %}
+          {% set battery_color = [255,51,0] %}
+        {% endif %}
+  
+        {#-- 1 Battery Layout --#}
+        {{ AddRect(pos_x - 7, pos_y, line_color_battery, 15, 9, false) }}
+        {{ AddRect(pos_x + 8, pos_y + 3, line_color_battery, 1, 3, false) }}
+        {#-- 2 Daily charche energy in kWh --#}
+        {{ AddText(pos_x - 8, pos_y + 2, text_color_energy, battery_energy_charche ~ ">", "right") }}
+        {#-- 3 Daily discharche energy in kWh --#}
+        {{ AddText(pos_x + 10, pos_y + 2, text_color_energy, ">" ~ battery_energy_discharche, "left") }}
+        {#-- 4 Battery power in W --#}
+        {{ AddText(pos_x, pos_y - 6, text_color_power, battery_power|abs, "center") }}
+        {#-- 5 Battery state of charche in % --#}
+        {{ AddText(pos_x, pos_y + 2, battery_color, battery_soc, "center") }}
+
+        {#-- animate the power flow along the power path  --#}
+        {% if battery_power | int < 0 %}
+          {{ AddRect(power_path_pos_x - power_flow_size_x // 2, power_path_pos_y + 1 + time_seconds % (power_path_legth_y - power_path_offset_top - power_flow_size_y), line_color_power_flow, power_flow_size_x, power_flow_size_y, true) }}
+        {% elif battery_power | int > 0 %}
+          {{ AddRect(power_path_pos_x - power_flow_size_x // 2, power_path_pos_y + power_path_legth_y - power_path_offset_top - power_flow_size_y - time_seconds % (power_path_legth_y - power_path_offset_top - power_flow_size_y), line_color_power_flow, power_flow_size_x, power_flow_size_y, true) }}
+        {% else %}
+        {% endif %}
+
+        {#------------------------------------------------------------------------#}
+        {#-- Grid                                                               --#}
+        {#------------------------------------------------------------------------#}
+
+        {#-- reference = upper left corner of grid daily energy export display --#}
+        {% set pos_x = 0 %}
+        {% set pos_y = 22 %}
+  
+        {#-- get all used sensor values. Each sensor is checked by has_value('') --#}
+        {% set grid_energy_import = states('sensor.wr_1_12k_today_energy_import')|round(0) if has_value('sensor.wr_1_12k_today_energy_import') else 0 %}
+        {% set grid_energy_export = states('sensor.wr_1_12k_today_energy_export')|round(0) if has_value('sensor.wr_1_12k_today_energy_export') else 0 %}
+        {% set grid_power = states('sensor.wr_1_12k_grid_power')|round(0) if has_value('sensor.wr_1_12k_grid_power') else 0 %}
+  
+        {% set icon_grid = 
+          'iVBORw0KGgoAAAANSUhEUgAAAAsAAAAOCAYAAAD5YeaVAAAAXklEQVR42mNkQALqBYf/M6CBmxNsGWFsRmSFMAlcbEZ0k2CSyIowTCZaMTa3YnM7hgm4TAbxyXczzDkwxTiDDpup6KYzElKINZyxWYsuxohLITYNGFGKDcDkcSrABgD+jHZogfYlIwAAAABJRU5ErkJggg=='
+          %}
+        {{ AddImgByBase64(0, 25, icon_grid) }}
+        {#{{ AddImgByPath(0, 25, custom_img_path_solar + "/gridtower.png") }}#}
+  
+        {#-- Grid daily energy export in kWh --#}
+        {{ AddText(pos_x, pos_y - 3, text_color_energy, "<" ~ grid_energy_export, "left") }} 
+        {#-- Grid power in W --#}
+        {{ AddText(pos_x + 12, pos_y + 6, text_color_power, grid_power|abs, "left") }} 
+        {#-- Grid daily energy import in kWh --#}
+        {{ AddText(pos_x, pos_y + 17, text_color_energy, ">" ~ grid_energy_import, "left") }} 
+
+        {#-- animate the power flow along the power path --#}
+        {% if grid_power > 0 %}
+          {{ AddRect(power_path_pos_x - power_path_offset_left + time_seconds % (power_path_offset_left - power_flow_size_x + 1), power_path_pos_y - power_flow_size_y // 2, line_color_power_flow, power_flow_size_x, power_flow_size_y, true) }}
+        {% elif grid_power < 0 %}
+          {{ AddRect(power_path_pos_x - power_flow_size_x - time_seconds % (power_path_offset_left - power_flow_size_x + 1), power_path_pos_y - power_flow_size_y // 2, line_color_power_flow, power_flow_size_x, power_flow_size_y, true) }}
+        {% else %}
+        {% endif %}
+
+        {#------------------------------------------------------------------------#}
+        {#-- Air Control and Temperatures                                       --#}
+        {#------------------------------------------------------------------------#}
+        {#-- reference = upper right corner of fan_speed display --#}
+        {% set pos_x = 61 %}
+        {% set pos_y = 28 %}
+        
+        {#-- Fan speed  --#}
+        {% set fan_speed = states('sensor.helios_ec300_pro_fan_speed')|int if has_value('sensor.helios_ec300_pro_fan_speed') else 0 %}
+        {{ AddText(pos_x, pos_y, text_color_fan_speed, fan_speed, "right") }}
+        
+        {#-- fan animation with rotating propeller --#}
+        {% set start_x = pos_x - 7 %}
+        {% set start_y = pos_y + 1 %}
+        {% set step = time_seconds % 4%}
+        {% set fan_color = text_color_fan_speed %}
+    
+        {% if step == 0 %}
+          {{ AddRect(start_x - 0, start_y + 1, fan_color, 3, 1, true) }}
+        {% elif step == 1 %}
+          {{ AddRect(start_x - 0, start_y + 0, fan_color, 1, 1, true) }}
+          {{ AddRect(start_x + 1, start_y + 1, fan_color, 1, 1, true) }}
+          {{ AddRect(start_x + 2, start_y + 2, fan_color, 1, 1, true) }}
+        {% elif step == 2 %}
+          {{ AddRect(start_x + 1, start_y + 0, fan_color, 1, 3, true) }}
+        {% elif step == 3 %}
+          {{ AddRect(start_x + 2, start_y + 0, fan_color, 1, 1, true) }}
+          {{ AddRect(start_x + 1, start_y + 1, fan_color, 1, 1, true) }}
+          {{ AddRect(start_x + 0, start_y + 2, fan_color, 1, 1, true) }}
+        {% else %}
+        {% endif %}
+  
+        {#------ garden / outdoor temperature ----------------------------------#}
+        {#-- reference = upper right corner of garden_temperature display --#}
+        {% set pos_x = 61 %}
+        {% set pos_y = 43 %}
+        {% set garden_temperature = states('sensor.hue_outdoor_motion_sensor_1_temperatur')|int if has_value('sensor.hue_outdoor_motion_sensor_1_temperatur') else 0 %}
+        {{ AddText(pos_x, pos_y, text_color_temperature, garden_temperature, "right") }}
+
+  
+        {#== finally output components list to template definition =============#}
+        {{components.list}}
+        {#======================================================================#}
