@@ -5,7 +5,7 @@
 # Version History:
 #         |   |
 # 25.08.25|1.0|- Sample to demonstrade animation inside a configuration setting with Pixoo 64
-#         |   |
+#         |   |  The hole animation is done in one templatable component. With that positions can be calculated
 #-----------------------------------------------------------------------------
 # HA OS    : 16.1
 # HA Core  : 2025.8.3
@@ -30,7 +30,6 @@
 
     - type: templatable
       template: >-
-
         {#-- macro to create a component of type rectangle and add it to the global components.list #}
         {%- macro AddRect(posx, posy, color, sizex, sizey, filled = false) %}
           {%- set component = {"type": "rectangle", "position": [posx, posy], "color": color,  "size": [sizex, sizey], "filled": filled|bool} %}
